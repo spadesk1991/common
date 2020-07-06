@@ -1,4 +1,4 @@
-package request
+package rq
 
 import (
 	"bytes"
@@ -6,13 +6,15 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"mime/multipart"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/pkg/errors"
 )
 
-type RQ struct {
+type rq struct {
 	method string
 	uri    string
 	header map[string]string
@@ -20,26 +22,26 @@ type RQ struct {
 	body   io.Reader
 }
 
-func DefaultRQ() *RQ {
-	return &RQ{}
+func DefaultRq() *rq {
+	return &rq{}
 }
 
-func (r *RQ) Uri(uri string) *RQ {
+func (r *rq) Uri(uri string) *rq {
 	r.uri = uri
 	return r
 }
 
-func (r *RQ) SetHeader(header map[string]string) *RQ {
+func (r *rq) SetHeader(header map[string]string) *rq {
 	r.header = header
 	return r
 }
 
-func (r *RQ) SetParams(params map[string]string) *RQ {
+func (r *rq) SetParams(params map[string]string) *rq {
 	r.params = params
 	return r
 }
 
-func (r *RQ) SetBody(body interface{}) *RQ {
+func (r *rq) SetBody(body interface{}) *rq {
 	var in io.Reader
 	if body != nil {
 		var bodyBf []byte
@@ -53,27 +55,63 @@ func (r *RQ) SetBody(body interface{}) *RQ {
 	return r
 }
 
-func (r *RQ) Post() *RQ {
+func (r *rq) SetFrom(from map[string]string, files ...*os.File) *rq {
+	//写入数据
+	bodyBuf := new(bytes.Buffer)
+	// 创建新的写入
+	sendWriter := multipart.NewWriter(bodyBuf)
+	for k, v := range from {
+		sendWriter.WriteField(k, v)
+	}
+	var err error
+	for _, file := range files {
+		// 创建form 上传文件
+		var fileWriter io.Writer
+		if fileWriter, err = sendWriter.CreateFormFile("file", "aaaaa.jpg"); err != nil {
+			panic(errors.WithStack(err))
+		}
+
+		if _, err = io.Copy(fileWriter, file); err != nil {
+			panic(errors.WithStack(err))
+		}
+		formType := sendWriter.FormDataContentType()
+		r, err := http.Post("localhost:8080", formType, bodyBuf)
+		if err != nil {
+			panic(errors.WithStack(err))
+		}
+		bt, _ := ioutil.ReadAll(r.Body)
+		fmt.Println(string(bt))
+	}
+	return r
+
+}
+
+func (r *rq) Set() *rq {
+
+	return r
+}
+
+func (r *rq) Post() *rq {
 	r.method = "POST"
 	return r
 }
 
-func (r *RQ) Get() *RQ {
+func (r *rq) Get() *rq {
 	r.method = "GET"
 	return r
 }
 
-func (r *RQ) Put() *RQ {
+func (r *rq) Put() *rq {
 	r.method = "PUT"
 	return r
 }
 
-func (r *RQ) Delete() *RQ {
+func (r *rq) Delete() *rq {
 	r.method = "DELETE"
 	return r
 }
 
-func (r *RQ) JsonResult(res interface{}) (err error) {
+func (r *rq) JsonResult(res interface{}) (err error) {
 	bf, err := r.do()
 	if err != nil {
 		return
@@ -81,7 +119,7 @@ func (r *RQ) JsonResult(res interface{}) (err error) {
 	json.Unmarshal(bf, &res)
 	return
 }
-func (r *RQ) StringResult() (res string, err error) {
+func (r *rq) StringResult() (res string, err error) {
 	bf, err := r.do()
 	if err != nil {
 		return
@@ -89,7 +127,12 @@ func (r *RQ) StringResult() (res string, err error) {
 	res = string(bf)
 	return
 }
-func (r *RQ) do() (buff []byte, err error) {
+
+func (r *rq) BufferResult() (res []byte, err error) {
+	return r.do()
+}
+
+func (r *rq) do() (buff []byte, err error) {
 	url := r.uri
 	ps := make([]string, 0)
 	// 拼接params参数
