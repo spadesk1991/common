@@ -13,11 +13,8 @@ func init() {
 	v = validator.New()
 }
 
-func Validate(in interface{}) {
-	e := handleError(in, v.Struct(in))
-	if e != nil {
-		panic(e)
-	}
+func Validate(in interface{}) (err error) {
+	return handleError(in, v.Struct(in))
 }
 
 func handleError(obj interface{}, err error) (e error) {
