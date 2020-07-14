@@ -14,7 +14,9 @@ var v *validator.Validate
 
 func init() {
 	v = validator.New()
-	v.RegisterValidation("YYYMMDD", CheckYYYYMMDD)
+	if e := v.RegisterValidation("YYYYMMDD", CheckYYYYMMDD); e != nil {
+		panic(e)
+	}
 }
 
 func Validate(in interface{}) (err error) {
@@ -30,7 +32,7 @@ func CheckYYYYMMDD(fl validator.FieldLevel) bool {
 	if !f {
 		return false
 	}
-	_, err = time.Parse("2006-0102", value)
+	_, err = time.Parse("2006-01-02", value)
 	if err != nil {
 		return false
 	}
