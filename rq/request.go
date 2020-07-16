@@ -18,7 +18,7 @@ type rq struct {
 	method string
 	uri    string
 	header map[string]string
-	params map[string]interface{}
+	params map[string]string
 	body   io.Reader
 }
 
@@ -36,7 +36,7 @@ func (r *rq) SetHeader(header map[string]string) *rq {
 	return r
 }
 
-func (r *rq) SetParams(params map[string]interface{}) *rq {
+func (r *rq) SetParams(params map[string]string) *rq {
 	r.params = params
 	return r
 }
