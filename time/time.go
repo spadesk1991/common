@@ -4,8 +4,6 @@ import (
 	"time"
 )
 
-const ()
-
 func StartDay(t time.Time) (nt time.Time) {
 	nt, _ = time.ParseInLocation("2006-01-02", t.Format("2006-01-02"), t.Location())
 	return

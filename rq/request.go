@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"math/rand"
 	"mime/multipart"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 )
@@ -20,10 +22,17 @@ type rq struct {
 	header map[string]string
 	params map[string]string
 	body   io.Reader
+	bodyBf []byte // 打印日志
+	debug  bool
+	out    io.Writer
 }
 
+var requestId int64
+
 func DefaultRq() *rq {
-	return &rq{}
+	return &rq{
+		out: os.Stdout,
+	}
 }
 
 func (r *rq) Uri(uri string) *rq {
@@ -49,6 +58,7 @@ func (r *rq) SetBody(body interface{}) *rq {
 		if err != nil {
 			panic(errors.WithStack(err))
 		}
+		r.bodyBf = bodyBf
 		in = bytes.NewBuffer(bodyBf)
 	}
 	r.body = in
@@ -66,8 +76,10 @@ func (r *rq) SetFrom(from map[string]string, files ...*os.File) *rq {
 	var err error
 	for _, file := range files {
 		// 创建form 上传文件
+		rd := rand.New(rand.NewSource(time.Now().UnixNano()))
+		fmt.Println(rd.Intn(100))
 		var fileWriter io.Writer
-		if fileWriter, err = sendWriter.CreateFormFile("file", "aaaaa.jpg"); err != nil {
+		if fileWriter, err = sendWriter.CreateFormFile("file", fmt.Sprintf("%s/%d%d", os.TempDir(), time.Now().UnixNano(), rd.Intn(100))); err != nil {
 			panic(errors.WithStack(err))
 		}
 
@@ -75,19 +87,15 @@ func (r *rq) SetFrom(from map[string]string, files ...*os.File) *rq {
 			panic(errors.WithStack(err))
 		}
 		formType := sendWriter.FormDataContentType()
-		r, err := http.Post("localhost:8080", formType, bodyBuf)
-		if err != nil {
-			panic(errors.WithStack(err))
-		}
-		bt, _ := ioutil.ReadAll(r.Body)
-		fmt.Println(string(bt))
+		r.bodyBf = bodyBuf.Bytes()
+		r.body = bodyBuf
+		r.header["Content-Type"] = formType // 设置头
 	}
 	return r
-
 }
 
-func (r *rq) Set() *rq {
-
+func (r *rq) SetLogOut(out io.Writer) *rq {
+	r.out = out
 	return r
 }
 
@@ -108,6 +116,11 @@ func (r *rq) Put() *rq {
 
 func (r *rq) Delete() *rq {
 	r.method = "DELETE"
+	return r
+}
+
+func (r *rq) Debug() *rq {
+	r.debug = true
 	return r
 }
 
@@ -152,13 +165,28 @@ func (r *rq) do() (buff []byte, err error) {
 			request.Header.Set(k, v)
 		}
 	}
-
+	requestId++
+	if r.debug {
+		fmt.Fprintf(r.out, "[HTTTP-REQUEST] [%d] | %s | %s | %s\n", requestId, r.method, r.uri, string(r.bodyBf))
+	}
 	client := http.DefaultClient
+	client.Timeout = time.Minute // 超时时间为1分钟
 	rs, err := client.Do(request)
 	if err != nil {
 		return
 	}
+
 	defer rs.Body.Close()
 	buff, err = ioutil.ReadAll(rs.Body)
+	if err != nil {
+		return
+	}
+	if rs.StatusCode != http.StatusOK {
+		err = errors.New(fmt.Sprintf("调用接口失败，[%s] | %d | %s | %s", r.method, rs.StatusCode, r.uri, string(buff)))
+		return
+	}
+	if r.debug {
+		fmt.Fprintf(r.out, "[HTTTP-RESPONCE] [%d] | %s | %s | %s | %s \n", requestId, r.method, r.uri, string(r.bodyBf), string(buff))
+	}
 	return
 }
