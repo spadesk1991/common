@@ -23,16 +23,41 @@ type rq struct {
 	params map[string]string
 	body   io.Reader
 	bodyBf []byte // 打印日志
-	debug  bool
-	out    io.Writer
+	//debug  bool
+	//out    io.Writer
 }
 
-var requestId int64
+type setting struct {
+	requestId int64
+	out       io.Writer
+	debug     bool
+}
+
+func newSetting(out io.Writer) *setting {
+	return &setting{out: out}
+}
+
+var mysetting = newSetting(os.Stdout)
+
+func DefaultSetting() *setting {
+	return mysetting
+}
+func (s *setting) Debug() *setting {
+	s.debug = true
+	return s
+}
+
+func (s *setting) SetLogOut(out io.Writer) *setting {
+	s.out = out
+	return s
+}
+
+//var requestId int64
+//var out io.Writer = os.Stdout
+//var debug bool
 
 func DefaultRq() *rq {
-	return &rq{
-		out: os.Stdout,
-	}
+	return &rq{}
 }
 
 func (r *rq) Uri(uri string) *rq {
@@ -95,7 +120,7 @@ func (r *rq) SetFrom(from map[string]string, files ...*os.File) *rq {
 }
 
 func (r *rq) SetLogOut(out io.Writer) *rq {
-	r.out = out
+	out = out
 	return r
 }
 
@@ -116,11 +141,6 @@ func (r *rq) Put() *rq {
 
 func (r *rq) Delete() *rq {
 	r.method = "DELETE"
-	return r
-}
-
-func (r *rq) Debug() *rq {
-	r.debug = true
 	return r
 }
 
@@ -165,9 +185,9 @@ func (r *rq) do() (buff []byte, err error) {
 			request.Header.Set(k, v)
 		}
 	}
-	requestId++
-	if r.debug {
-		fmt.Fprintf(r.out, "[HTTTP-REQUEST] [%d] | %s | %s | %s\n", requestId, r.method, r.uri, string(r.bodyBf))
+	mysetting.requestId++
+	if mysetting.debug {
+		fmt.Fprintf(mysetting.out, "[HTTTP-REQUEST] [%d] | %s | %s | %s\n", mysetting.requestId, r.method, r.uri, string(r.bodyBf))
 	}
 	client := http.DefaultClient
 	client.Timeout = time.Minute // 超时时间为1分钟
@@ -185,8 +205,8 @@ func (r *rq) do() (buff []byte, err error) {
 		err = errors.New(fmt.Sprintf("调用接口失败，[%s] | %d | %s | %s", r.method, rs.StatusCode, r.uri, string(buff)))
 		return
 	}
-	if r.debug {
-		fmt.Fprintf(r.out, "[HTTTP-RESPONCE] [%d] | %s | %s | %s | %s \n", requestId, r.method, r.uri, string(r.bodyBf), string(buff))
+	if mysetting.debug {
+		fmt.Fprintf(mysetting.out, "[HTTTP-RESPONCE] [%d] | %s | %s | %s | %s \n", mysetting.requestId, r.method, r.uri, string(r.bodyBf), string(buff))
 	}
 	return
 }
