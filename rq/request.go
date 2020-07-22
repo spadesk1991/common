@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sirupsen/logrus"
+
 	"github.com/pkg/errors"
 )
 
@@ -29,15 +31,15 @@ type rq struct {
 
 type setting struct {
 	requestId int64
-	out       io.Writer
+	logger    *logrus.Logger
 	debug     bool
 }
 
-func newSetting(out io.Writer) *setting {
-	return &setting{out: out}
+func newSetting(log *logrus.Logger) *setting {
+	return &setting{logger: log}
 }
 
-var mysetting = newSetting(os.Stdout)
+var mysetting = newSetting(logrus.New())
 
 func DefaultSetting() *setting {
 	return mysetting
@@ -47,8 +49,8 @@ func (s *setting) Debug() *setting {
 	return s
 }
 
-func (s *setting) SetLogOut(out io.Writer) *setting {
-	s.out = out
+func (s *setting) SetLogOut(log *logrus.Logger) *setting {
+	s.logger = log
 	return s
 }
 
@@ -183,7 +185,7 @@ func (r *rq) do() (buff []byte, err error) {
 	}
 	mysetting.requestId++
 	if mysetting.debug {
-		fmt.Fprintf(mysetting.out, "[HTTTP-REQUEST] [%d] | %s | %s | %s\n", mysetting.requestId, r.method, r.uri, string(r.bodyBf))
+		mysetting.logger.Infof("[HTTTP-REQUEST] [%d] | %s | %s | %s\n", mysetting.requestId, r.method, r.uri, string(r.bodyBf))
 	}
 	client := http.DefaultClient
 	client.Timeout = time.Minute // 超时时间为1分钟
@@ -202,7 +204,7 @@ func (r *rq) do() (buff []byte, err error) {
 		return
 	}
 	if mysetting.debug {
-		fmt.Fprintf(mysetting.out, "[HTTTP-RESPONCE] [%d] | %s | %s | %s | %s \n", mysetting.requestId, r.method, r.uri, string(r.bodyBf), string(buff))
+		mysetting.logger.Infof("[HTTTP-RESPONCE] [%d] | %s | %s | %s | %s \n", mysetting.requestId, r.method, r.uri, string(r.bodyBf), string(buff))
 	}
 	return
 }
