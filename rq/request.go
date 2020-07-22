@@ -119,11 +119,6 @@ func (r *rq) SetFrom(from map[string]string, files ...*os.File) *rq {
 	return r
 }
 
-func (r *rq) SetLogOut(out io.Writer) *rq {
-	out = out
-	return r
-}
-
 func (r *rq) Post() *rq {
 	r.method = "POST"
 	return r
@@ -152,6 +147,7 @@ func (r *rq) JsonResult(res interface{}) (err error) {
 	json.Unmarshal(bf, &res)
 	return
 }
+
 func (r *rq) StringResult() (res string, err error) {
 	bf, err := r.do()
 	if err != nil {
