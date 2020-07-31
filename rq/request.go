@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"math"
 	"math/rand"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -19,24 +21,32 @@ import (
 )
 
 type rq struct {
-	method string
-	uri    string
-	header map[string]string
-	params map[string]string
-	body   io.Reader
-	bodyBf []byte // 打印日志
-	//debug  bool
-	//out    io.Writer
+	method     string
+	uri        string
+	header     map[string]string
+	query      url.Values
+	form       url.Values
+	body       io.Reader
+	bodyBf     []byte // 打印日志
+	retryTime  time.Duration
+	retryIndex float64
+	retries    float64
 }
 
 type setting struct {
 	requestId int64
-	logger    *logrus.Logger
+	logger    logger
 	debug     bool
+	retryTime time.Duration
+	retries   float64
+}
+
+type logger interface {
+	Infof(format string, args ...interface{})
 }
 
 func newSetting(log *logrus.Logger) *setting {
-	return &setting{logger: log}
+	return &setting{logger: log, retryTime: time.Second, retries: 4}
 }
 
 var mysetting = newSetting(logrus.New())
@@ -44,8 +54,19 @@ var mysetting = newSetting(logrus.New())
 func DefaultSetting() *setting {
 	return mysetting
 }
+
 func (s *setting) Debug() *setting {
 	s.debug = true
+	return s
+}
+
+func (s *setting) RetryTime(t time.Duration) *setting {
+	s.retryTime = t
+	return s
+}
+
+func (s *setting) Retries(count float64) *setting {
+	s.retries = count
 	return s
 }
 
@@ -54,12 +75,11 @@ func (s *setting) SetLogOut(log *logrus.Logger) *setting {
 	return s
 }
 
-//var requestId int64
-//var out io.Writer = os.Stdout
-//var debug bool
-
 func DefaultRq() *rq {
-	return &rq{}
+	return &rq{
+		retryTime: mysetting.retryTime,
+		retries:   mysetting.retries,
+	}
 }
 
 func (r *rq) Uri(uri string) *rq {
@@ -67,13 +87,33 @@ func (r *rq) Uri(uri string) *rq {
 	return r
 }
 
-func (r *rq) SetHeader(header map[string]string) *rq {
-	r.header = header
+func (r *rq) SetRetryTime(t time.Duration) *rq {
+	r.retryTime = t
 	return r
 }
 
-func (r *rq) SetParams(params map[string]string) *rq {
-	r.params = params
+func (r *rq) SetRetries(count float64) *rq {
+	r.retries = count
+	return r
+}
+
+func (r *rq) SetHeader(header map[string]string) *rq {
+	if r.header == nil {
+		r.header = map[string]string{}
+	}
+	for k, v := range header {
+		r.header[k] = v
+	}
+	return r
+}
+
+func (r *rq) SetQuery(query url.Values) *rq {
+	r.query = query
+	return r
+}
+
+func (r *rq) SetForm(form url.Values) *rq {
+	r.form = form
 	return r
 }
 
@@ -92,32 +132,30 @@ func (r *rq) SetBody(body interface{}) *rq {
 	return r
 }
 
-func (r *rq) SetFrom(from map[string]string, files ...*os.File) *rq {
+func (r *rq) SetFormFile(form map[string]string, file *os.File) *rq {
 	//写入数据
 	bodyBuf := new(bytes.Buffer)
 	// 创建新的写入
 	sendWriter := multipart.NewWriter(bodyBuf)
-	for k, v := range from {
+	for k, v := range form {
 		sendWriter.WriteField(k, v)
 	}
 	var err error
-	for _, file := range files {
-		// 创建form 上传文件
-		rd := rand.New(rand.NewSource(time.Now().UnixNano()))
-		fmt.Println(rd.Intn(100))
-		var fileWriter io.Writer
-		if fileWriter, err = sendWriter.CreateFormFile("file", fmt.Sprintf("%s/%d%d", os.TempDir(), time.Now().UnixNano(), rd.Intn(100))); err != nil {
-			panic(errors.WithStack(err))
-		}
-
-		if _, err = io.Copy(fileWriter, file); err != nil {
-			panic(errors.WithStack(err))
-		}
-		formType := sendWriter.FormDataContentType()
-		r.bodyBf = bodyBuf.Bytes()
-		r.body = bodyBuf
-		r.header["Content-Type"] = formType // 设置头
+	// 创建form 上传文件
+	rd := rand.New(rand.NewSource(time.Now().UnixNano()))
+	fmt.Println(rd.Intn(100))
+	var fileWriter io.Writer
+	if fileWriter, err = sendWriter.CreateFormFile("file", fmt.Sprintf("%s/%d%d", os.TempDir(), time.Now().UnixNano(), rd.Intn(100))); err != nil {
+		panic(errors.WithStack(err))
 	}
+
+	if _, err = io.Copy(fileWriter, file); err != nil {
+		panic(errors.WithStack(err))
+	}
+	formType := sendWriter.FormDataContentType()
+	r.bodyBf = bodyBuf.Bytes()
+	r.body = bodyBuf
+	r.header["Content-Type"] = formType // 设置头
 	return r
 }
 
@@ -142,7 +180,7 @@ func (r *rq) Delete() *rq {
 }
 
 func (r *rq) JsonResult(res interface{}) (err error) {
-	bf, err := r.do()
+	bf, err := r.run()
 	if err != nil {
 		return
 	}
@@ -151,7 +189,7 @@ func (r *rq) JsonResult(res interface{}) (err error) {
 }
 
 func (r *rq) StringResult() (res string, err error) {
-	bf, err := r.do()
+	bf, err := r.run()
 	if err != nil {
 		return
 	}
@@ -160,19 +198,41 @@ func (r *rq) StringResult() (res string, err error) {
 }
 
 func (r *rq) BufferResult() (res []byte, err error) {
-	return r.do()
+	return r.run()
 }
 
-func (r *rq) do() (buff []byte, err error) {
-	url := r.uri
-	ps := make([]string, 0)
-	// 拼接params参数
-	if r.params != nil {
-		for k, v := range r.params {
-			ps = append(ps, fmt.Sprintf("&%s=%s", k, v))
+func (r *rq) run() (buff []byte, err error) {
+	var statusCode int
+label:
+	buff, statusCode, err = r.do()
+	if statusCode >= 500 && statusCode <= 504 && r.retryIndex < r.retries {
+		r.retryIndex++
+		sleepTime := time.Duration(math.Pow(2, r.retryIndex)) * r.retryTime
+		if mysetting.debug {
+			mysetting.logger.Infof("[HTTP-RETRY] after %s", sleepTime)
 		}
-		url += strings.Join(ps, "&")
+		time.Sleep(sleepTime)
+		goto label // 重新调用
+	} else { // 重置为0
+		r.retryIndex = 0
 	}
+	return
+}
+
+func (r *rq) do() (buff []byte, statusCode int, err error) {
+	statusCode = http.StatusOK
+	url := r.uri
+	// 解析query参数
+	queryStr := r.query.Encode()
+
+	if queryStr != "" {
+		url += "?" + queryStr
+	}
+	if r.form != nil {
+		r.header["Content-Type"] = "application/x-www-form-urlencoded"
+		r.body = strings.NewReader(r.form.Encode())
+	}
+
 	request, err := http.NewRequest(r.method, url, r.body)
 	if err != nil {
 		return
@@ -185,7 +245,7 @@ func (r *rq) do() (buff []byte, err error) {
 	}
 	mysetting.requestId++
 	if mysetting.debug {
-		mysetting.logger.Infof("[HTTTP-REQUEST] [%d] | %s | %s | %s\n", mysetting.requestId, r.method, r.uri, string(r.bodyBf))
+		mysetting.logger.Infof("[HTTP-REQUEST] [%d] | %s | %s | %s\n", mysetting.requestId, r.method, r.uri, string(r.bodyBf))
 	}
 	client := http.DefaultClient
 	client.Timeout = time.Minute // 超时时间为1分钟
@@ -193,6 +253,7 @@ func (r *rq) do() (buff []byte, err error) {
 	if err != nil {
 		return
 	}
+	statusCode = rs.StatusCode // 返回状态码
 
 	defer rs.Body.Close()
 	buff, err = ioutil.ReadAll(rs.Body)
@@ -204,7 +265,7 @@ func (r *rq) do() (buff []byte, err error) {
 		return
 	}
 	if mysetting.debug {
-		mysetting.logger.Infof("[HTTTP-RESPONCE] [%d] | %s | %s | %s | %s \n", mysetting.requestId, r.method, r.uri, string(r.bodyBf), string(buff))
+		mysetting.logger.Infof("[HTTP-RESPONSE] [%d] | %s | %s | %s | %s \n", mysetting.requestId, r.method, r.uri, string(r.bodyBf), string(buff))
 	}
 	return
 }
