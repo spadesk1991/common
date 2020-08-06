@@ -70,7 +70,7 @@ func (s *setting) Retries(count float64) *setting {
 	return s
 }
 
-func (s *setting) SetLogOut(log *logrus.Logger) *setting {
+func (s *setting) SetLogOut(log logger) *setting {
 	s.logger = log
 	return s
 }
