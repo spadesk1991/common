@@ -39,6 +39,7 @@ type setting struct {
 	debug     bool
 	retryTime time.Duration
 	retries   float64
+	timeout   time.Duration
 }
 
 type logger interface {
@@ -72,6 +73,11 @@ func (s *setting) Retries(count float64) *setting {
 
 func (s *setting) SetLogOut(log logger) *setting {
 	s.logger = log
+	return s
+}
+
+func (s *setting) SetTimeOut(d time.Duration) *setting {
+	s.timeout = d
 	return s
 }
 
@@ -248,7 +254,7 @@ func (r *rq) do() (buff []byte, statusCode int, err error) {
 		mysetting.logger.Infof("[HTTP-REQUEST] [%d] | %s | %s | %s\n", mysetting.requestId, r.method, r.uri, string(r.bodyBf))
 	}
 	client := http.DefaultClient
-	client.Timeout = time.Minute // 超时时间为1分钟
+	client.Timeout = mysetting.timeout // 超时时间
 	rs, err := client.Do(request)
 	if err != nil {
 		return
