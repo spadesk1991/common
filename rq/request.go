@@ -251,7 +251,7 @@ func (r *rq) do() (buff []byte, statusCode int, err error) {
 	}
 	mysetting.requestId++
 	if mysetting.debug {
-		mysetting.logger.Infof("[HTTP-REQUEST] [%d] | %s | %s | %s\n", mysetting.requestId, r.method, r.uri, string(r.bodyBf))
+		mysetting.logger.Infof("[HTTP-REQUEST] [%d] | %s | %s | %s\n", mysetting.requestId, r.method, fmt.Sprintf("%s?%s", r.uri, r.query.Encode()), string(r.bodyBf))
 	}
 	client := http.DefaultClient
 	client.Timeout = mysetting.timeout // 超时时间
@@ -271,7 +271,7 @@ func (r *rq) do() (buff []byte, statusCode int, err error) {
 		return
 	}
 	if mysetting.debug {
-		mysetting.logger.Infof("[HTTP-RESPONSE] [%d] | %s | %s | %s | %s \n", mysetting.requestId, r.method, r.uri, string(r.bodyBf), string(buff))
+		mysetting.logger.Infof("[HTTP-RESPONSE] [%d] | %s | %s | %s | %s \n", mysetting.requestId, r.method, fmt.Sprintf("%s?%s", r.uri, r.query.Encode()), string(r.bodyBf), string(buff))
 	}
 	return
 }
